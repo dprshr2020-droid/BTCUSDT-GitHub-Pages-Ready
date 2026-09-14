@@ -1,0 +1,16 @@
+V4 CANDLE GAP FIX
+
+The prior versions incorrectly tried to manufacture missing bars. For Binance
+BTCUSDT Spot this is unnecessary and can create apparent spacing/artifacts.
+
+V4:
+- Returns Binance REST klines exactly as supplied.
+- Does not synthesize historical zero-volume candles.
+- Does not synthesize realtime candles between trades.
+- Sets has_empty_bars=false so TradingView does not manufacture bars.
+- Keeps one trade WebSocket.
+- Keeps per-resolution realtime state.
+- Trade aggregation updates only the current bar or starts the next bar.
+- Adds explicit TradingView intraday/daily/weekly/monthly multipliers.
+
+This is the correct approach for a continuously traded Binance Spot market.

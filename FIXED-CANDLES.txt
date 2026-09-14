@@ -1,0 +1,16 @@
+V3 candle fix
+
+The previous implementation incorrectly used one global live candle and one
+global active resolution. TradingView can temporarily keep multiple
+subscriptions alive during timeframe changes. Each subscriber now has its own
+resolution-specific candle state while all subscribers share ONE Binance
+trade WebSocket.
+
+Also:
+- REST history is sorted/de-duplicated.
+- Binance REST history is filled across missing fixed intervals with
+  zero-volume candles using the previous close.
+- Realtime gaps are filled the same way.
+- Historical last-bar state seeds realtime updates.
+- Same-time realtime updates replace the current bar as required by the
+  TradingView Datafeed API.
