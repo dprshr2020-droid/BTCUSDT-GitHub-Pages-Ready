@@ -15,7 +15,6 @@ html,body,#tv_chart_container{width:100%;height:100%;margin:0;padding:0;overflow
 <script>
 (function(){
 "use strict";
-
 var datafeed = new BinanceFastDatafeed();
 window.tvWidget = new TradingView.widget({
   fullscreen:true,
@@ -37,205 +36,55 @@ window.tvWidget = new TradingView.widget({
   }
 });
 
-// ======================================================================
-// LOCAL CHART PERSISTENCE
-// ======================================================================
-var STORAGE_KEY = "btc-binance-chart-v1";
+// Local chart persistence + automatic 5m/15m overlays.
+var STORAGE_KEY = "btc-binance-chart-v2";
 var restoreFinished = false;
-
-function saveChartState() {
-  if (!restoreFinished || !window.tvWidget) return;
-  try {
-    window.tvWidget.save(function(state) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-      catch (e) { console.warn("[Chart] Could not save chart state:", e); }
-    });
-  } catch (e) { console.warn("[Chart] Save failed:", e); }
+function saveChartState(){
+  if(!restoreFinished || !window.tvWidget) return;
+  try{ window.tvWidget.save(function(state){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }); }catch(e){}
+}
+function restoreChartState(){
+  var raw=null; try{raw=localStorage.getItem(STORAGE_KEY);}catch(e){}
+  if(!raw){restoreFinished=true;return;}
+  try{window.tvWidget.load(JSON.parse(raw));}catch(e){}
+  setTimeout(function(){restoreFinished=true;saveChartState();},1500);
 }
 
-function restoreChartState() {
-  var raw = null;
-  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) {}
-  if (!raw) { restoreFinished = true; return; }
-  try { window.tvWidget.load(JSON.parse(raw)); }
-  catch (e) { console.warn("[Chart] Could not restore saved chart:", e); }
-  setTimeout(function(){ restoreFinished = true; saveChartState(); }, 1500);
-}
-
-// ======================================================================
-// 5m / 15m TARGET RAYS + AUTOMATIC 15m -> LAST-5m BOX
-// Extracted from btc-chart-fullscreen_fast_binance_trade(4).html and
-// recreated with TradingView Charting Library drawing objects.
-// ======================================================================
-var overlayState = {
-  candles1m: [],
-  bucket5: null,
-  bucket15: null,
-  target5: null,
-  target15: null,
-  ids: []
-};
-
-var BINANCE_1M_URL = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1000";
-var FIVE = 5 * 60 * 1000;
-var FIFTEEN = 15 * 60 * 1000;
-var ONE = 60 * 1000;
-
-function bucketStart(ts, size) { return Math.floor(ts / size) * size; }
-
-function remember(id) {
-  if (id !== null && id !== undefined) overlayState.ids.push(id);
-  return id;
-}
-
-function removeAutoDrawings() {
-  if (!window.tvWidget) return;
-  var chart = window.tvWidget.activeChart();
-  for (var i = 0; i < overlayState.ids.length; i++) {
-    try { chart.removeEntity(overlayState.ids[i]); } catch (e) {}
-  }
-  overlayState.ids = [];
-}
-
-function find1mOpen(ts) {
-  var a = overlayState.candles1m;
-  for (var i = a.length - 1; i >= 0; i--) {
-    if (a[i].t === ts) return a[i].o;
-    if (a[i].t < ts) break;
-  }
-  return null;
-}
-
-function parse1mKlines(rows) {
-  return rows.map(function(k){
-    return { t:Number(k[0]), o:Number(k[1]), h:Number(k[2]), l:Number(k[3]), c:Number(k[4]) };
-  });
-}
-
-async function refresh1mOverlayData() {
-  try {
-    var res = await fetch(BINANCE_1M_URL, { cache:"no-store" });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    overlayState.candles1m = parse1mKlines(await res.json());
-    drawIntervalOverlays();
-  } catch (e) {
-    console.warn("[BTC overlay] 1m data refresh failed:", e);
-  }
-}
-
-function addDashedRay(chart, startMs, price, color) {
-  if (price == null) return;
-  return remember(chart.createShape(
-    { time: Math.floor(startMs / 1000), price: price },
-    {
-      shape: "horizontal_ray",
-      lock: true,
-      disableSelection: true,
-      disableSave: true,
-      disableUndo: true,
-      overrides: {
-        "linetoolhorzray.linecolor": color,
-        "linetoolhorzray.linewidth": 1,
-        "linetoolhorzray.linestyle": 2,
-        "linetoolhorzray.extendLeft": false,
-        "linetoolhorzray.extendRight": true,
-        "linetoolhorzray.showLabel": false,
-        "linetoolhorzray.showPriceLabels": false
-      }
+var overlay = { candles:[], ids:[] };
+var ONE=60000, FIVE=5*ONE, FIFTEEN=15*ONE;
+function bs(t,n){return Math.floor(t/n)*n;}
+function openAt(t){for(var i=overlay.candles.length-1;i>=0;i--){if(overlay.candles[i].t===t)return overlay.candles[i].o;if(overlay.candles[i].t<t)break;}return null;}
+function clearOverlay(){var c;try{c=window.tvWidget.activeChart();}catch(e){return;} overlay.ids.forEach(function(id){try{c.removeEntity(id);}catch(e){}});overlay.ids=[];}
+function seg(c,t1,p1,t2,p2,color,width){try{overlay.ids.push(c.createMultipointShape([{time:Math.floor(t1/1000),price:p1},{time:Math.floor(t2/1000),price:p2}],{shape:"trend_line",lock:true,disableSelection:true,disableSave:true,disableUndo:true,overrides:{"linetooltrendline.linecolor":color,"linetooltrendline.linewidth":width,"linetooltrendline.linestyle":2,"linetooltrendline.extendLeft":false,"linetooltrendline.extendRight":false,"linetooltrendline.showLabel":false,"linetooltrendline.showPriceLabels":false}}));}catch(e){}}
+function ray(c,t,p,color){if(p==null)return;try{overlay.ids.push(c.createShape({time:Math.floor(t/1000),price:p},{shape:"horizontal_ray",lock:true,disableSelection:true,disableSave:true,disableUndo:true,overrides:{"linetoolhorzray.linecolor":color,"linetoolhorzray.linewidth":1,"linetoolhorzray.linestyle":2,"linetoolhorzray.extendLeft":false,"linetoolhorzray.extendRight":true,"linetoolhorzray.showLabel":false,"linetoolhorzray.showPrice":false}}));}catch(e){}}
+function drawOverlays(){
+  if(!overlay.candles.length||!window.tvWidget)return;
+  var c;try{c=window.tvWidget.activeChart();}catch(e){return;} if(!c)return;
+  var now=Date.now(), s5=bs(now,FIVE), s15=bs(now,FIFTEEN), p5=openAt(s5), p15=openAt(s15);
+  clearOverlay();
+  // Exact source colors/design: 5m #7dd3fc, 15m #f5a623, 1px dashed [5,3].
+  ray(c,s15,p15,"#f5a623"); ray(c,s5,p5,"#7dd3fc");
+  // Exact source auto-box: white 50% opacity, 1.25px, dashed [5,3].
+  if(p15!=null && now>=s15+10*ONE){
+    var pLast=openAt(s15+10*ONE);
+    if(pLast!=null){var left=s15-ONE,right=s15+FIFTEEN+ONE,top=Math.max(p15,pLast),bottom=Math.min(p15,pLast),mid=(p15+pLast)/2;
+      var bc="rgba(255,255,255,0.5)";
+      seg(c,left,top,right,top,bc,1.25);seg(c,right,top,right,bottom,bc,1.25);seg(c,right,bottom,left,bottom,bc,1.25);seg(c,left,bottom,left,top,bc,1.25);seg(c,left,mid,right,mid,bc,1.25);
     }
-  ));
-}
-
-function addDashedSegment(chart, t1, p1, t2, p2, color) {
-  return remember(chart.createMultipointShape(
-    [
-      { time: Math.floor(t1 / 1000), price: p1 },
-      { time: Math.floor(t2 / 1000), price: p2 }
-    ],
-    {
-      shape: "trend_line",
-      lock: true,
-      disableSelection: true,
-      disableSave: true,
-      disableUndo: true,
-      overrides: {
-        "linetooltrendline.linecolor": color,
-        "linetooltrendline.linewidth": 1,
-        "linetooltrendline.linestyle": 2,
-        "linetooltrendline.extendLeft": false,
-        "linetooltrendline.extendRight": false,
-        "linetooltrendline.showLabel": false,
-        "linetooltrendline.showPriceLabels": false
-      }
-    }
-  ));
-}
-
-function addAutoBox(chart, start15, p15, last5) {
-  // Source behavior:
-  // left  = 15m open - 1m
-  // right = 15m end + 1m
-  // top/bottom = 15m open and last-5m open
-  // mid    = average of the two opens
-  var left = start15 - ONE;
-  var right = start15 + FIFTEEN + ONE;
-  var top = Math.max(p15, last5);
-  var bottom = Math.min(p15, last5);
-  var mid = (p15 + last5) / 2;
-  var boxColor = "#FFFFFF";
-
-  addDashedSegment(chart, left, top, right, top, boxColor);
-  addDashedSegment(chart, right, top, right, bottom, boxColor);
-  addDashedSegment(chart, right, bottom, left, bottom, boxColor);
-  addDashedSegment(chart, left, bottom, left, top, boxColor);
-  addDashedSegment(chart, left, mid, right, mid, boxColor);
-}
-
-function drawIntervalOverlays() {
-  if (!window.tvWidget || !overlayState.candles1m.length) return;
-
-  var chart;
-  try { chart = window.tvWidget.activeChart(); } catch (e) { return; }
-  if (!chart) return;
-
-  var now = Date.now();
-  var start5 = bucketStart(now, FIVE);
-  var start15 = bucketStart(now, FIFTEEN);
-  var p5 = find1mOpen(start5);
-  var p15 = find1mOpen(start15);
-
-  overlayState.bucket5 = start5;
-  overlayState.bucket15 = start15;
-  overlayState.target5 = p5;
-  overlayState.target15 = p15;
-
-  removeAutoDrawings();
-
-  // Both target rays are always visible from the beginning of their bucket.
-  addDashedRay(chart, start15, p15, "#f5a623");
-  addDashedRay(chart, start5, p5, "#7dd3fc");
-
-  // Automatic box activates only after 10 minutes into the current 15m.
-  if (p15 != null && now >= start15 + 10 * ONE) {
-    var last5Start = start15 + 10 * ONE;
-    var last5 = find1mOpen(last5Start);
-    if (last5 != null) addAutoBox(chart, start15, p15, last5);
   }
 }
-
-window.tvWidget.onChartReady(function() {
-  restoreChartState();
-
-  // Wait for the chart/datafeed to be ready, then load the 1m source used
-  // only for the interval-open calculations and automatic box.
-  setTimeout(refresh1mOverlayData, 500);
-  setInterval(refresh1mOverlayData, 10000);
-  setInterval(drawIntervalOverlays, 5000);
-
-  setInterval(saveChartState, 2000);
+async function refreshOverlayData(){
+ try{var r=await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1000",{cache:"no-store"}); if(!r.ok)throw Error(r.status); var a=await r.json(); overlay.candles=a.map(function(k){return{t:Number(k[0]),o:Number(k[1])};});drawOverlays();}catch(e){}
+}
+window.tvWidget.onChartReady(function(){
+ restoreChartState();
+ refreshOverlayData();
+ setInterval(refreshOverlayData,10000);
+ setInterval(drawOverlays,5000);
+ setInterval(saveChartState,2000);
 });
+window.addEventListener("beforeunload",saveChartState);
 
-window.addEventListener("beforeunload", function(){ saveChartState(); });
 })();
 </script>
 </body>

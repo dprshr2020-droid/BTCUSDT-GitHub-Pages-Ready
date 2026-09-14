@@ -1,0 +1,8 @@
+1. Open Command Prompt in this folder.
+2. Run:
+   python -m http.server 8000
+3. Open:
+   http://localhost:8000/btcusdt.html
+
+If the chart is blank, press F12 -> Console and look for an error beginning with:
+[BinanceFastDatafeed]
