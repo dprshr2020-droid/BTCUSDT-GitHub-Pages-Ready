@@ -51,7 +51,7 @@
         "top:0",
         "display:block",
         "pointer-events:none",
-        "z-index:2"
+        "z-index:999999"
       ].join(";");
       var host = document.getElementById("tv_chart_container");
       if (host) {
@@ -215,7 +215,13 @@
 
   function draw() {
     raf = 0;
-    if (destroyed || !syncCanvas()) return;
+    if (destroyed || !chart) return;
+    try {
+      timeScale = chart.getTimeScale();
+      pane = chart.getPanes()[0];
+      priceScale = pane && pane.getMainSourcePriceScale();
+    } catch (_) { return; }
+    if (!timeScale || !pane || !priceScale || !syncCanvas()) return;
 
     var w = timeScale.width();
     var h = pane.getHeight();
@@ -251,7 +257,7 @@
     var now = Date.now();
     var start = now - 24 * 60 * ONE_MIN;
     var url = REST + "?symbol=BTCUSDT&interval=1m&startTime=" + start + "&limit=1000";
-    fetch(url, { cache: "no-store" })
+    fetch(url, { cache: "no-store", mode: "cors" })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (rows) {
         if (Array.isArray(rows)) seedRows(rows);
@@ -328,6 +334,7 @@
     chart = widget.activeChart();
     ensureCanvas();
     bindChartEvents();
+    console.log("[AutomaticDrawings] initialized — persistence disabled");
     fetchInitial();
     connect();
 

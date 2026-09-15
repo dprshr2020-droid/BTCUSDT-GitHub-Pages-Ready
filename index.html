@@ -37,26 +37,9 @@ window.tvWidget = new TradingView.widget({
   }
 });
 
-// Local chart persistence + automatic 5m/15m overlays.
-var STORAGE_KEY = "btc-binance-chart-v2";
-var restoreFinished = false;
-function saveChartState(){
-  if(!restoreFinished || !window.tvWidget) return;
-  try{ window.tvWidget.save(function(state){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }); }catch(e){}
-}
-function restoreChartState(){
-  var raw=null; try{raw=localStorage.getItem(STORAGE_KEY);}catch(e){}
-  if(!raw){restoreFinished=true;return;}
-  try{window.tvWidget.load(JSON.parse(raw));}catch(e){}
-  setTimeout(function(){restoreFinished=true;saveChartState();},1500);
-}
-
 window.tvWidget.onChartReady(function(){
- window.AutoIntervalDrawings && window.AutoIntervalDrawings.init(window.tvWidget);
- restoreChartState();
- setInterval(saveChartState,2000);
+  window.AutoIntervalDrawings && window.AutoIntervalDrawings.init(window.tvWidget);
 });
-window.addEventListener("beforeunload",saveChartState);
 
 })();
 </script>
