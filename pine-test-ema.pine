@@ -1,0 +1,5 @@
+indicator("Pine EMA Test")
+fast = ta.ema(close, 20)
+slow = ta.ema(close, 50)
+plot(fast)
+plot(slow)

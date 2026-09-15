@@ -1,16 +1,16 @@
 # Pine Script Panel
 
-The chart now includes a small Pine Indicators panel.
+Open the GitHub Pages chart. The Pine Indicators panel is shown over the chart.
 
-Features:
-- Paste Pine-compatible code into the editor.
-- Load `.pine` or `.txt` files.
-- Save scripts to browser localStorage.
-- Select saved scripts.
-- Run the current script.
-- Enable/disable individual scripts.
-- Remove scripts.
-- Run all enabled scripts simultaneously.
-- The built-in 5m/15m exact drawing indicator is available by default.
+Controls:
+- New: create a script.
+- Load .pine: load a Pine-compatible script file.
+- Save: store the current script in browser localStorage.
+- Run: run the selected script.
+- Run Enabled: run all enabled scripts together.
+- Checkbox: enable/disable a saved script.
+- Remove: remove a saved script.
+- `−`: minimize the panel.
+- `×`: hide the panel. A `Pine` button reopens it.
 
-This is a limited Pine-compatible runtime, not TradingView's proprietary Pine runtime. Supported syntax/functions are documented in `PINE-SYSTEM-README.md`.
+Test file: `pine-test-ema.pine`.
