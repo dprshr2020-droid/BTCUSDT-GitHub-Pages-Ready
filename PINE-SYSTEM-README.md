@@ -1,16 +1,14 @@
-# Limited Pine-Compatible System
+# Limited Pine-Compatible System — Exact 5m/15m Levels
 
-This project adds a small Pine-style runtime on top of the existing fast Binance BTCUSDT + TradingView Charting Library project.
+The included `pine-indicator.pine` is the active indicator for the automatic level system.
 
-## Included
-- Binance 1m historical OHLCV seed and live trade updates.
-- Pine-style variables and a limited expression evaluator.
-- Common `ta.*` functions: SMA, EMA, RMA, WMA, RSI, ATR, highest, lowest, crossover, crossunder.
-- `plot()` and `hline()` rendering.
-- Exact automatic 5m/15m lines + 15m→last-5m box through the same runtime using `exactDrawings()`.
-- 5m line: #7dd3fc, 1px, [5,3].
-- 15m line: #f5a623, 1px, [5,3].
-- Box starts 1m before the 15m bucket and ends 1m after it; it activates after the 10-minute point and includes the midpoint line.
+## Exact behavior
+- Current 5m bucket open: `#7dd3fc`, 1px, dashed `[5,3]`. Starts at the 5m candle position and extends to the right edge.
+- Current 15m bucket open: `#f5a623`, 1px, dashed `[5,3]`. Starts at the 15m candle position and extends to the right edge.
+- At +10 minutes into the current 15m bucket, a box is drawn between the 15m open and the +10m (last 5m) open.
+- Box left boundary: 15m start - 1 minute.
+- Box right boundary: 15m start + 16 minutes.
+- Box midpoint line is included.
+- Box and midpoint: white 50% (`rgba(255,255,255,0.5)`), 1.25px, dashed `[5,3]`, no fill.
 
-## Script
-`pine-indicator.pine` is the default indicator definition. The runtime is deliberately limited and is not TradingView's Pine runtime.
+The runtime uses Binance 1m candles for exact bucket-open values, so the drawings remain correct when the TradingView chart is switched between 1m and 5m.

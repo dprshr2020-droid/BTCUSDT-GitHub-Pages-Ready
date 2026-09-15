@@ -10,6 +10,7 @@ html,body,#tv_chart_container{width:100%;height:100%;margin:0;padding:0;overflow
 <script src="charting_library/charting_library.standalone.js"></script>
 <script src="binance-fast-datafeed.js"></script>
 <script src="pine-system.js"></script>
+<script src="pine-panel.js"></script>
 </head>
 <body>
 <div id="tv_chart_container"></div>
@@ -53,6 +54,7 @@ function restoreChartState(){
 
 window.tvWidget.onChartReady(function(){
  window.PineSystem.init(window.tvWidget);
+ window.PinePanel && window.PinePanel.init();
  restoreChartState();
  setInterval(saveChartState,2000);
 });

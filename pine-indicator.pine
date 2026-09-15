@@ -1,6 +1,6 @@
 //@version=limited
 indicator("5m + 15m Automatic Levels")
 
-// This project supports the custom exactDrawings() primitive so the
-// original 5m/15m lines + box can run through the Pine-compatible system.
+// Exact automatic drawing system for the current 5m/15m buckets.
+// The runtime supplies exact bucket opens from Binance 1m candles.
 exactDrawings()
