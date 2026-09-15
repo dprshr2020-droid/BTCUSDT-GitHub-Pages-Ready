@@ -39,16 +39,24 @@
           disableSelection: true,
           disableSave: true,
           disableUndo: true,
-          overrides: {
+          zOrder: "top"
+        }
+      );
+      if (id) {
+        ids.push(id);
+        try {
+          var api = chart.getShapeById(id);
+          api.setProperties({
             "linetoolhorzray.linecolor": color,
             "linetoolhorzray.linewidth": 1,
             "linetoolhorzray.linestyle": 2,
             "linetoolhorzray.showPrice": false,
             "linetoolhorzray.showLabel": false
-          }
-        }
-      );
-      if (id) ids.push(id);
+          });
+          api.setSelectionEnabled(false);
+          api.setSavingEnabled(false);
+        } catch (pe) { console.warn("[AutomaticDrawings] ray property error", pe); }
+      }
     } catch (e) {
       console.warn("[AutomaticDrawings] ray error", e);
     }
@@ -72,7 +80,14 @@
           disableSelection: true,
           disableSave: true,
           disableUndo: true,
-          overrides: {
+          zOrder: "top"
+        }
+      );
+      if (id) {
+        ids.push(id);
+        try {
+          var api = chart.getShapeById(id);
+          api.setProperties({
             "linetoolrectangle.color": "rgba(255,255,255,0.5)",
             "linetoolrectangle.linewidth": 1,
             "linetoolrectangle.fillBackground": false,
@@ -83,10 +98,11 @@
             "linetoolrectangle.middleLine.lineColor": "rgba(255,255,255,0.5)",
             "linetoolrectangle.middleLine.lineWidth": 1,
             "linetoolrectangle.middleLine.lineStyle": 2
-          }
-        }
-      );
-      if (id) ids.push(id);
+          });
+          api.setSelectionEnabled(false);
+          api.setSavingEnabled(false);
+        } catch (pe) { console.warn("[AutomaticDrawings] box property error", pe); }
+      }
     } catch (e) {
       console.warn("[AutomaticDrawings] box error", e);
     }
@@ -114,7 +130,7 @@
     addRay(b5, p5, "#7dd3fc");
     if (pLast5 != null) addBox(b15, p15, pLast5);
 
-    console.log("[AutomaticDrawings] rendered", { fiveMin:p5, fifteenMin:p15, box:pLast5 });
+    console.log("[AutomaticDrawings] rendered EXACT", { fiveMin:{start:new Date(b5).toISOString(),open:p5}, fifteenMin:{start:new Date(b15).toISOString(),open:p15}, box:{last5Start:pLast5 != null ? new Date(b15+10*ONE_MIN).toISOString() : null,last5Open:pLast5} });
   }
 
   function seed(rows) {
