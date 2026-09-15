@@ -1,16 +1,7 @@
-# Pine Script Panel
+# Pine Indicators Panel
 
-Open the GitHub Pages chart. The Pine Indicators panel is shown over the chart.
+The panel is a Shadow DOM UI with always-visible controls.
 
-Controls:
-- New: create a script.
-- Load .pine: load a Pine-compatible script file.
-- Save: store the current script in browser localStorage.
-- Run: run the selected script.
-- Run Enabled: run all enabled scripts together.
-- Checkbox: enable/disable a saved script.
-- Remove: remove a saved script.
-- `−`: minimize the panel.
-- `×`: hide the panel. A `Pine` button reopens it.
+Controls: New, Load .pine, Run, Save, Remove, Run Enabled, minimize, close, and a Pine reopen button.
 
-Test file: `pine-test-ema.pine`.
+The browser localStorage key is `btc-pine-scripts-v4`.
