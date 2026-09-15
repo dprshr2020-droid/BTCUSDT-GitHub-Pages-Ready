@@ -43,23 +43,19 @@
           { time: t1, price: price }
         ],
         {
-          shape: "ray",
+          shape: "horizontal_ray",
           lock: true,
           disableSelection: true,
           disableSave: true,
           disableUndo: true,
           zOrder: "top",
           overrides: {
-            "linetoolray.linecolor": color,
-            "linetoolray.linewidth": 1,
-            "linetoolray.linestyle": 2,
-            "linetoolray.extendLeft": false,
-            "linetoolray.extendRight": true,
-            "linetoolray.showPriceLabels": false,
-            "linetoolray.showPriceRange": false,
-            "linetoolray.showDistance": false,
-            "linetoolray.showDateTimeRange": false,
-            "linetoolray.showAngle": false
+            linecolor: color,
+            linewidth: 1,
+            linestyle: 2,
+            showLabel: false,
+            showPrice: false,
+            
           }
         }
       );
