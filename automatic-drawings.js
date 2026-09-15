@@ -72,22 +72,28 @@
     var width = Math.max(1, Math.round(timeScale.width()));
     var height = Math.max(1, Math.round(pane.getHeight()));
     var dpr = global.devicePixelRatio || 1;
-
-    // The TradingView time-scale coordinate system starts at the left edge of
-    // the main chart pane; the main pane starts at the top of the fullscreen host.
-    // Locate the underlying TradingView plot surface so the overlay uses the
-    // same left/top origin even when the left drawing toolbar is visible.
     var hostRect = host.getBoundingClientRect();
+
+    // TradingView's public APIs give us the chart-pane width/height, but not
+    // the pane's DOM offset. Find the closest visible TradingView surface.
+    // Do not require an exact width match: depending on the Charting Library
+    // build, the internal canvas can include a few pixels of padding/overlays.
     var left = 0, top = 0;
-    var nodes = host.querySelectorAll("canvas, svg, div");
     var best = null, bestScore = Infinity;
+    var nodes = host.querySelectorAll("canvas, svg, div");
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
       if (el === canvas) continue;
       var r = el.getBoundingClientRect();
-      if (r.width < width - 4 || r.width > width + 4) continue;
-      if (r.height < height - 8) continue;
-      var score = Math.abs(r.width - width) + Math.abs(r.height - height) * 0.25 + Math.abs(r.top - hostRect.top) * 0.5;
+      if (r.width < 100 || r.height < 100) continue;
+      var dw = Math.abs(r.width - width);
+      var dh = Math.abs(r.height - height);
+      // Strongly prefer the correct pane dimensions, then proximity to the
+      // host top. Allow up to 25% dimension difference for internal wrappers.
+      if (dw > Math.max(80, width * 0.25) || dh > Math.max(80, height * 0.25)) continue;
+      var score = dw * 2 + dh + Math.abs(r.top - hostRect.top) * 0.15;
+      // A surface extending at least across the time-scale width is preferable.
+      if (r.width >= width - 10) score -= 25;
       if (score < bestScore) { bestScore = score; best = r; }
     }
     if (best) {
@@ -102,6 +108,7 @@
     canvas.width = Math.max(1, Math.round(width * dpr));
     canvas.height = Math.max(1, Math.round(height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     return true;
   }
 
@@ -112,12 +119,14 @@
     var width = timeScale.width();
     if (!(width > 0)) return null;
 
+    var ts = unixMs / 1000;
     var t0 = timeScale.coordinateToTime(0);
     var t1 = timeScale.coordinateToTime(width);
-    if (t0 == null || t1 == null || t1 === t0) return null;
+    if (t0 != null && t1 != null && t1 !== t0) {
+      return (ts - t0) / (t1 - t0) * width;
+    }
 
-    var ts = unixMs / 1000;
-    return (ts - t0) / (t1 - t0) * width;
+    return null;
   }
 
   function priceToY(price) {
@@ -230,6 +239,14 @@
     var now = Date.now();
     var t = currentTargets(now);
 
+    if (t.p5 == null || t.p15 == null) {
+      console.warn("[AutomaticDrawings] waiting for Binance 1m opens", {
+        p5: t.p5, b5: new Date(t.b5).toISOString(),
+        p15: t.p15, b15: new Date(t.b15).toISOString(),
+        candleCount: Object.keys(candles).length
+      });
+    }
+
     drawRay(t.p15, t.b15, "#f5a623");
     drawRay(t.p5, t.b5, "#7dd3fc");
     drawBox(now, t.b15, t.p15);
@@ -261,6 +278,7 @@
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (rows) {
         if (Array.isArray(rows)) seedRows(rows);
+        console.log("[AutomaticDrawings] Binance 1m history loaded:", Object.keys(candles).length, "candles");
         scheduleDraw();
       })
       .catch(function (e) { console.warn("[AutomaticDrawings] 1m history:", e); });
