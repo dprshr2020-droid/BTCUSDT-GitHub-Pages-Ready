@@ -47,13 +47,3 @@ Spot REST:
 
 Spot WebSocket:
 `wss://stream.binance.com:9443/ws/btcusdt@trade`
-
-## Automatic interval drawings
-
-`automatic-drawings.js` adds the automatic drawings from the supplied standalone HTML directly to the TradingView chart:
-
-- Current 5m candle open: `#7dd3fc`, 1px, dashed `[5,3]`, beginning at the 5m candle position and extending right.
-- Current 15m candle open: `#f5a623`, 1px, dashed `[5,3]`, beginning at the 15m candle position and extending right.
-- Current 15m → last-5m box: activates at +10 minutes; left = 15m start −1m; right = 15m end +1m; boundaries are the 15m open and +10m 1m open; midline is their average; white `rgba(255,255,255,0.5)`, 1.25px, dashed `[5,3]`, no fill.
-
-The overlay is non-interactive and follows TradingView pan/zoom/timeframe changes. It uses the Binance 1m trade stream for the exact bucket opens needed by the automatic drawings.
