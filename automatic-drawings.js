@@ -154,8 +154,9 @@
     var xCenter = timeToX(bucketTs);
     if (y == null || xCenter == null) return;
 
-    // Match the supplied HTML's rayStartX(): the ray begins at the left edge
-    // of the candle slot, while timeToX() corresponds to the candle position.
+    // The supplied standalone HTML starts each ray at the left edge of the
+    // matching candle slot. TradingView's coordinateToTime() maps a candle
+    // timestamp to its candle center, so move back by half the bar spacing.
     var barSpacing = timeScale.barSpacing();
     var x = xCenter - barSpacing / 2;
 
@@ -190,8 +191,8 @@
 
     if (left == null || right == null || y1 == null || y2 == null || yMid == null) return;
 
-    left = Math.min(left, right);
-    right = Math.max(left, right);
+    var boxLeft = Math.min(left, right);
+    var boxRight = Math.max(left, right);
     var top = Math.min(y1, y2);
     var bottom = Math.max(y1, y2);
 
@@ -204,10 +205,10 @@
     ctx.lineWidth = 1.25;
     ctx.setLineDash([5, 3]);
 
-    ctx.strokeRect(left + 0.5, top + 0.5, right - left, bottom - top);
+    ctx.strokeRect(boxLeft + 0.5, top + 0.5, boxRight - boxLeft, bottom - top);
     ctx.beginPath();
-    ctx.moveTo(left, Math.round(yMid) + 0.5);
-    ctx.lineTo(right, Math.round(yMid) + 0.5);
+    ctx.moveTo(boxLeft, Math.round(yMid) + 0.5);
+    ctx.lineTo(boxRight, Math.round(yMid) + 0.5);
     ctx.stroke();
     ctx.restore();
   }
