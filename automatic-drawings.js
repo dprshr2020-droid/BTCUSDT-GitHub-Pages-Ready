@@ -1,378 +1,183 @@
-/*
- * Automatic 5m / 15m interval drawings.
- * Geometry and styling are intentionally based on the supplied standalone HTML:
- * - 5m open ray: #7dd3fc, 1px, [5,3]
- * - 15m open ray: #f5a623, 1px, [5,3]
- * - 15m -> last-5m box: white rgba(255,255,255,0.5), 1.25px, [5,3], no fill
- * - box appears only from +10m into the current 15m bucket
- *
- * The drawings are rendered in a non-interactive canvas over the TradingView
- * chart, rather than as saved TradingView drawing objects. This preserves the
- * exact canvas line width/dash pattern required by the source HTML.
- */
+/* Automatic 5m / 15m drawings — native TradingView drawing objects.
+   Uses the Charting Library drawing API so drawings live inside the chart
+   coordinate system and remain visible while zooming, panning, resizing.
+*/
 (function (global) {
   "use strict";
 
   var REST = "https://api.binance.com/api/v3/klines";
   var WS = "wss://stream.binance.com/ws/btcusdt@trade";
   var ONE_MIN = 60000;
-  var FIVE_MIN = 5 * ONE_MIN;
-  var FIFTEEN_MIN = 15 * ONE_MIN;
+  var FIVE = 5 * ONE_MIN;
+  var FIFTEEN = 15 * ONE_MIN;
 
-  var widget = null;
-  var chart = null;
-  var timeScale = null;
-  var priceScale = null;
-  var pane = null;
-  var canvas = null;
-  var ctx = null;
-  var raf = 0;
-  var timer = 0;
-  var socket = null;
-  var reconnectTimer = 0;
-  var destroyed = false;
-
-  // 1m candles keyed by exact Binance open timestamp.
+  var widget = null, chart = null, socket = null, timer = 0, reconnect = 0;
   var candles = Object.create(null);
-  var lastTradeTs = 0;
+  var destroyed = false;
+  var ids = [];
+  var lastKey = "";
 
-  function bucketStart(ts, minutes) {
-    var size = minutes * ONE_MIN;
-    return Math.floor(ts / size) * size;
-  }
+  function bucket(ts, mins) { return Math.floor(ts / (mins * ONE_MIN)) * (mins * ONE_MIN); }
+  function openAt(ts) { var c = candles[String(ts)]; return c ? c.open : null; }
 
-  function ensureCanvas() {
-    if (!canvas) {
-      canvas = document.createElement("canvas");
-      canvas.id = "automatic-interval-drawings";
-      canvas.style.cssText = [
-        "position:absolute",
-        "left:0",
-        "top:0",
-        "display:block",
-        "pointer-events:none",
-        "z-index:999999"
-      ].join(";");
-      var host = document.getElementById("tv_chart_container");
-      if (host) {
-        if (getComputedStyle(host).position === "static") host.style.position = "relative";
-        host.appendChild(canvas);
-      }
-      ctx = canvas.getContext("2d");
+  function removeAutoDrawings() {
+    if (!chart) return;
+    for (var i = 0; i < ids.length; i++) {
+      try { chart.removeEntity(ids[i], { disableUndo: true }); } catch (_) {}
     }
+    ids = [];
   }
 
-  function syncCanvas() {
-    ensureCanvas();
-    if (!canvas || !chart || !timeScale || !pane) return false;
-
-    var host = document.getElementById("tv_chart_container");
-    if (!host) return false;
-
-    var width = Math.max(1, Math.round(timeScale.width()));
-    var height = Math.max(1, Math.round(pane.getHeight()));
-    var dpr = global.devicePixelRatio || 1;
-    var hostRect = host.getBoundingClientRect();
-
-    // TradingView's public APIs give us the chart-pane width/height, but not
-    // the pane's DOM offset. Find the closest visible TradingView surface.
-    // Do not require an exact width match: depending on the Charting Library
-    // build, the internal canvas can include a few pixels of padding/overlays.
-    var left = 0, top = 0;
-    var best = null, bestScore = Infinity;
-    var nodes = host.querySelectorAll("canvas, svg, div");
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      if (el === canvas) continue;
-      var r = el.getBoundingClientRect();
-      if (r.width < 100 || r.height < 100) continue;
-      var dw = Math.abs(r.width - width);
-      var dh = Math.abs(r.height - height);
-      // Strongly prefer the correct pane dimensions, then proximity to the
-      // host top. Allow up to 25% dimension difference for internal wrappers.
-      if (dw > Math.max(80, width * 0.25) || dh > Math.max(80, height * 0.25)) continue;
-      var score = dw * 2 + dh + Math.abs(r.top - hostRect.top) * 0.15;
-      // A surface extending at least across the time-scale width is preferable.
-      if (r.width >= width - 10) score -= 25;
-      if (score < bestScore) { bestScore = score; best = r; }
-    }
-    if (best) {
-      left = best.left - hostRect.left;
-      top = best.top - hostRect.top;
-    }
-
-    canvas.style.left = Math.round(left) + "px";
-    canvas.style.top = Math.round(top) + "px";
-    canvas.style.width = width + "px";
-    canvas.style.height = height + "px";
-    canvas.width = Math.max(1, Math.round(width * dpr));
-    canvas.height = Math.max(1, Math.round(height * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    return true;
-  }
-
-  // Calibrate the time -> pixel mapping from TradingView's public
-  // coordinateToTime() API. This avoids assumptions about bar spacing or the
-  // current right offset.
-  function timeToX(unixMs) {
-    var width = timeScale.width();
-    if (!(width > 0)) return null;
-
-    var ts = unixMs / 1000;
-    var t0 = timeScale.coordinateToTime(0);
-    var t1 = timeScale.coordinateToTime(width);
-    if (t0 != null && t1 != null && t1 !== t0) {
-      return (ts - t0) / (t1 - t0) * width;
-    }
-
-    return null;
-  }
-
-  function priceToY(price) {
-    var range = priceScale && priceScale.getVisiblePriceRange();
-    if (!range) return null;
-    var from = Number(range.from);
-    var to = Number(range.to);
-    var h = pane.getHeight();
-    if (!(h > 0) || !isFinite(from) || !isFinite(to) || from === to) return null;
-
-    // TradingView price scales normally run from high at y=0 to low at y=height.
-    return h - ((price - from) / (to - from)) * h;
-  }
-
-  function getOpen(ts) {
-    var c = candles[String(ts)];
-    return c ? c.open : null;
-  }
-
-  function currentTargets(now) {
-    var b5 = bucketStart(now, 5);
-    var b15 = bucketStart(now, 15);
-    return {
-      b5: b5,
-      p5: getOpen(b5),
-      b15: b15,
-      p15: getOpen(b15)
-    };
-  }
-
-  function drawRay(price, bucketTs, color) {
+  function addRay(timeMs, price, color) {
     if (price == null) return;
-    var y = priceToY(price);
-    var xCenter = timeToX(bucketTs);
-    if (y == null || xCenter == null) return;
-
-    // The supplied standalone HTML starts each ray at the left edge of the
-    // matching candle slot. TradingView's coordinateToTime() maps a candle
-    // timestamp to its candle center, so move back by half the bar spacing.
-    var barSpacing = timeScale.barSpacing();
-    var x = xCenter - barSpacing / 2;
-
-    if (y <= -20 || y >= pane.getHeight() + 20) return;
-
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([5, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, y + 0.5);
-    ctx.lineTo(timeScale.width(), y + 0.5);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawBox(now, b15, p15) {
-    if (p15 == null) return;
-    if (now < b15 + 10 * ONE_MIN) return;
-
-    var last5Start = b15 + 10 * ONE_MIN;
-    var pLast5 = getOpen(last5Start);
-    if (pLast5 == null) return;
-
-    var leftT = b15 - ONE_MIN;
-    var rightT = b15 + FIFTEEN_MIN + ONE_MIN;
-    var left = timeToX(leftT);
-    var right = timeToX(rightT);
-    var y1 = priceToY(p15);
-    var y2 = priceToY(pLast5);
-    var yMid = priceToY((p15 + pLast5) / 2);
-
-    if (left == null || right == null || y1 == null || y2 == null || yMid == null) return;
-
-    var boxLeft = Math.min(left, right);
-    var boxRight = Math.max(left, right);
-    var top = Math.min(y1, y2);
-    var bottom = Math.max(y1, y2);
-
-    // Match the HTML's clip-to-chart behavior.
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, timeScale.width(), pane.getHeight());
-    ctx.clip();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.lineWidth = 1.25;
-    ctx.setLineDash([5, 3]);
-
-    ctx.strokeRect(boxLeft + 0.5, top + 0.5, boxRight - boxLeft, bottom - top);
-    ctx.beginPath();
-    ctx.moveTo(boxLeft, Math.round(yMid) + 0.5);
-    ctx.lineTo(boxRight, Math.round(yMid) + 0.5);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function draw() {
-    raf = 0;
-    if (destroyed || !chart) return;
     try {
-      timeScale = chart.getTimeScale();
-      pane = chart.getPanes()[0];
-      priceScale = pane && pane.getMainSourcePriceScale();
-    } catch (_) { return; }
-    if (!timeScale || !pane || !priceScale || !syncCanvas()) return;
+      var id = chart.createShape(
+        { time: timeMs / 1000, price: price },
+        {
+          shape: "horizontal_ray",
+          lock: true,
+          disableSelection: true,
+          disableSave: true,
+          disableUndo: true,
+          overrides: {
+            "linetoolhorzray.linecolor": color,
+            "linetoolhorzray.linewidth": 1,
+            "linetoolhorzray.linestyle": 2,
+            "linetoolhorzray.showPrice": false,
+            "linetoolhorzray.showLabel": false
+          }
+        }
+      );
+      if (id) ids.push(id);
+    } catch (e) {
+      console.warn("[AutomaticDrawings] ray error", e);
+    }
+  }
 
-    var w = timeScale.width();
-    var h = pane.getHeight();
-    ctx.clearRect(0, 0, w, h);
+  function addBox(start15, p15, pLast5) {
+    var left = (start15 - ONE_MIN) / 1000;
+    var right = (start15 + FIFTEEN + ONE_MIN) / 1000;
+    var top = Math.max(p15, pLast5);
+    var bottom = Math.min(p15, pLast5);
 
+    try {
+      var id = chart.createMultipointShape(
+        [
+          { time: left, price: top },
+          { time: right, price: bottom }
+        ],
+        {
+          shape: "rectangle",
+          lock: true,
+          disableSelection: true,
+          disableSave: true,
+          disableUndo: true,
+          overrides: {
+            "linetoolrectangle.color": "rgba(255,255,255,0.5)",
+            "linetoolrectangle.linewidth": 1,
+            "linetoolrectangle.fillBackground": false,
+            "linetoolrectangle.extendLeft": false,
+            "linetoolrectangle.extendRight": false,
+            "linetoolrectangle.showLabel": false,
+            "linetoolrectangle.middleLine.showLine": true,
+            "linetoolrectangle.middleLine.lineColor": "rgba(255,255,255,0.5)",
+            "linetoolrectangle.middleLine.lineWidth": 1,
+            "linetoolrectangle.middleLine.lineStyle": 2
+          }
+        }
+      );
+      if (id) ids.push(id);
+    } catch (e) {
+      console.warn("[AutomaticDrawings] box error", e);
+    }
+  }
+
+  function render() {
+    if (destroyed || !chart) return;
     var now = Date.now();
-    var t = currentTargets(now);
+    var b5 = bucket(now, 5);
+    var b15 = bucket(now, 15);
+    var p5 = openAt(b5);
+    var p15 = openAt(b15);
+    var pLast5 = now >= b15 + 10 * ONE_MIN ? openAt(b15 + 10 * ONE_MIN) : null;
+    var key = [b5, p5, b15, p15, pLast5 != null ? pLast5 : "none"].join("|");
 
-    if (t.p5 == null || t.p15 == null) {
-      console.warn("[AutomaticDrawings] waiting for Binance 1m opens", {
-        p5: t.p5, b5: new Date(t.b5).toISOString(),
-        p15: t.p15, b15: new Date(t.b15).toISOString(),
-        candleCount: Object.keys(candles).length
-      });
+    if (key === lastKey) return;
+    if (p5 == null || p15 == null) {
+      console.log("[AutomaticDrawings] waiting for opens", { b5:b5, p5:p5, b15:b15, p15:p15, candles:Object.keys(candles).length });
+      return;
     }
 
-    drawRay(t.p15, t.b15, "#f5a623");
-    drawRay(t.p5, t.b5, "#7dd3fc");
-    drawBox(now, t.b15, t.p15);
+    lastKey = key;
+    removeAutoDrawings();
+    addRay(b15, p15, "#f5a623");
+    addRay(b5, p5, "#7dd3fc");
+    if (pLast5 != null) addBox(b15, p15, pLast5);
+
+    console.log("[AutomaticDrawings] rendered", { fiveMin:p5, fifteenMin:p15, box:pLast5 });
   }
 
-  function scheduleDraw() {
-    if (raf || destroyed) return;
-    raf = requestAnimationFrame(draw);
-  }
-
-  function seedRows(rows) {
+  function seed(rows) {
     for (var i = 0; i < rows.length; i++) {
       var k = rows[i];
-      candles[String(+k[0])] = {
-        time: +k[0],
-        open: +k[1],
-        high: +k[2],
-        low: +k[3],
-        close: +k[4]
-      };
+      candles[String(+k[0])] = { open:+k[1], high:+k[2], low:+k[3], close:+k[4] };
     }
   }
 
   function fetchInitial() {
-    var now = Date.now();
-    var start = now - 24 * 60 * ONE_MIN;
-    var url = REST + "?symbol=BTCUSDT&interval=1m&startTime=" + start + "&limit=1000";
-    fetch(url, { cache: "no-store", mode: "cors" })
-      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-      .then(function (rows) {
-        if (Array.isArray(rows)) seedRows(rows);
-        console.log("[AutomaticDrawings] Binance 1m history loaded:", Object.keys(candles).length, "candles");
-        scheduleDraw();
-      })
-      .catch(function (e) { console.warn("[AutomaticDrawings] 1m history:", e); });
+    var start = Date.now() - 24 * 60 * ONE_MIN;
+    fetch(REST + "?symbol=BTCUSDT&interval=1m&startTime=" + start + "&limit=1000", { cache:"no-store", mode:"cors" })
+      .then(function(r){ if (!r.ok) throw Error("HTTP " + r.status); return r.json(); })
+      .then(function(rows){ seed(rows); console.log("[AutomaticDrawings] Binance 1m loaded", Object.keys(candles).length); render(); })
+      .catch(function(e){ console.warn("[AutomaticDrawings] Binance history failed", e); });
   }
 
-  function updateFromTrade(ts, price) {
+  function trade(ts, price) {
     var t = Math.floor(ts / ONE_MIN) * ONE_MIN;
-    var key = String(t);
-    var c = candles[key];
-    if (!c) {
-      candles[key] = { time:t, open:price, high:price, low:price, close:price };
-    } else {
-      if (price > c.high) c.high = price;
-      if (price < c.low) c.low = price;
-      c.close = price;
-    }
-    scheduleDraw();
+    var k = String(t), c = candles[k];
+    if (!c) candles[k] = c = { open:price, high:price, low:price, close:price };
+    else { if (price > c.high) c.high = price; if (price < c.low) c.low = price; c.close = price; }
+    render();
   }
 
   function connect() {
-    if (destroyed || socket || reconnectTimer) return;
-    try { socket = new WebSocket(WS); } catch (e) { socket = null; scheduleReconnect(); return; }
-
-    socket.onmessage = function (ev) {
-      var x;
-      try { x = JSON.parse(ev.data); } catch (_) { return; }
-      if (!x || x.e !== "trade") return;
-      var ts = +x.T, price = +x.p;
-      if (!(ts > lastTradeTs) || !(price > 0)) return;
-      lastTradeTs = ts;
-      updateFromTrade(ts, price);
+    if (destroyed || socket || reconnect) return;
+    try { socket = new WebSocket(WS); } catch (_) { scheduleReconnect(); return; }
+    socket.onopen = function(){ console.log("[AutomaticDrawings] Binance trade WS connected"); };
+    socket.onmessage = function(ev){
+      try {
+        var x = JSON.parse(ev.data);
+        if (x && x.e === "trade") trade(+x.T, +x.p);
+      } catch (_) {}
     };
-
-    socket.onerror = function () { try { socket.close(); } catch (_) {} };
-    socket.onclose = function () {
-      socket = null;
-      scheduleReconnect();
-    };
+    socket.onerror = function(){ try{socket.close();}catch(_){} };
+    socket.onclose = function(){ socket = null; scheduleReconnect(); };
   }
-
-  function scheduleReconnect() {
-    if (destroyed || reconnectTimer) return;
-    reconnectTimer = setTimeout(function () {
-      reconnectTimer = 0;
-      connect();
-    }, 1000);
-  }
-
-  function bindChartEvents() {
-    if (!chart) return;
-    try { timeScale = chart.getTimeScale(); } catch (_) { timeScale = null; }
-    try {
-      pane = chart.getPanes()[0];
-      priceScale = pane && pane.getMainSourcePriceScale();
-    } catch (_) {
-      pane = null;
-      priceScale = null;
-    }
-
-    try { chart.onVisibleRangeChanged().subscribe(null, scheduleDraw); } catch (_) {}
-    try { chart.onDataLoaded().subscribe(null, scheduleDraw); } catch (_) {}
-    try { timeScale.barSpacingChanged().subscribe(null, scheduleDraw); } catch (_) {}
-    try { timeScale.rightOffsetChanged().subscribe(null, scheduleDraw); } catch (_) {}
-    try { chart.onIntervalChanged().subscribe(null, function () { scheduleDraw(); }); } catch (_) {}
-    try { chart.onSymbolChanged().subscribe(null, function () { scheduleDraw(); }); } catch (_) {}
+  function scheduleReconnect(){
+    if (destroyed || reconnect) return;
+    reconnect = setTimeout(function(){ reconnect = 0; connect(); }, 1000);
   }
 
   function init(w) {
     if (!w || destroyed) return;
     widget = w;
     chart = widget.activeChart();
-    ensureCanvas();
-    bindChartEvents();
-    console.log("[AutomaticDrawings] initialized — persistence disabled");
+    console.log("[AutomaticDrawings] native mode initialized");
     fetchInitial();
     connect();
-
     clearInterval(timer);
-    // The source HTML checks the bucket/box state frequently. One-second
-    // refresh keeps the +10m activation and bucket transitions exact.
-    timer = setInterval(scheduleDraw, 1000);
-    scheduleDraw();
+    timer = setInterval(render, 1000);
+    render();
   }
 
-  function destroy() {
+  function destroy(){
     destroyed = true;
     clearInterval(timer);
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    if (socket) try { socket.close(); } catch (_) {}
+    if (reconnect) clearTimeout(reconnect);
+    if (socket) try{socket.close();}catch(_){}
     socket = null;
-    if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-    canvas = null;
-    ctx = null;
+    removeAutoDrawings();
   }
 
-  global.AutoIntervalDrawings = { init: init, destroy: destroy };
+  global.AutoIntervalDrawings = { init:init, destroy:destroy };
 })(window);
