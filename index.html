@@ -50,37 +50,8 @@ function restoreChartState(){
   setTimeout(function(){restoreFinished=true;saveChartState();},1500);
 }
 
-var overlay = { candles:[], ids:[] };
-var ONE=60000, FIVE=5*ONE, FIFTEEN=15*ONE;
-function bs(t,n){return Math.floor(t/n)*n;}
-function openAt(t){for(var i=overlay.candles.length-1;i>=0;i--){if(overlay.candles[i].t===t)return overlay.candles[i].o;if(overlay.candles[i].t<t)break;}return null;}
-function clearOverlay(){var c;try{c=window.tvWidget.activeChart();}catch(e){return;} overlay.ids.forEach(function(id){try{c.removeEntity(id);}catch(e){}});overlay.ids=[];}
-function seg(c,t1,p1,t2,p2,color,width){try{overlay.ids.push(c.createMultipointShape([{time:Math.floor(t1/1000),price:p1},{time:Math.floor(t2/1000),price:p2}],{shape:"trend_line",lock:true,disableSelection:true,disableSave:true,disableUndo:true,overrides:{"linetooltrendline.linecolor":color,"linetooltrendline.linewidth":width,"linetooltrendline.linestyle":2,"linetooltrendline.extendLeft":false,"linetooltrendline.extendRight":false,"linetooltrendline.showLabel":false,"linetooltrendline.showPriceLabels":false}}));}catch(e){}}
-function ray(c,t,p,color){if(p==null)return;try{overlay.ids.push(c.createShape({time:Math.floor(t/1000),price:p},{shape:"horizontal_ray",lock:true,disableSelection:true,disableSave:true,disableUndo:true,overrides:{"linetoolhorzray.linecolor":color,"linetoolhorzray.linewidth":1,"linetoolhorzray.linestyle":2,"linetoolhorzray.extendLeft":false,"linetoolhorzray.extendRight":true,"linetoolhorzray.showLabel":false,"linetoolhorzray.showPrice":false}}));}catch(e){}}
-function drawOverlays(){
-  if(!overlay.candles.length||!window.tvWidget)return;
-  var c;try{c=window.tvWidget.activeChart();}catch(e){return;} if(!c)return;
-  var now=Date.now(), s5=bs(now,FIVE), s15=bs(now,FIFTEEN), p5=openAt(s5), p15=openAt(s15);
-  clearOverlay();
-  // Exact source colors/design: 5m #7dd3fc, 15m #f5a623, 1px dashed [5,3].
-  ray(c,s15,p15,"#f5a623"); ray(c,s5,p5,"#7dd3fc");
-  // Exact source auto-box: white 50% opacity, 1.25px, dashed [5,3].
-  if(p15!=null && now>=s15+10*ONE){
-    var pLast=openAt(s15+10*ONE);
-    if(pLast!=null){var left=s15-ONE,right=s15+FIFTEEN+ONE,top=Math.max(p15,pLast),bottom=Math.min(p15,pLast),mid=(p15+pLast)/2;
-      var bc="rgba(255,255,255,0.5)";
-      seg(c,left,top,right,top,bc,1.25);seg(c,right,top,right,bottom,bc,1.25);seg(c,right,bottom,left,bottom,bc,1.25);seg(c,left,bottom,left,top,bc,1.25);seg(c,left,mid,right,mid,bc,1.25);
-    }
-  }
-}
-async function refreshOverlayData(){
- try{var r=await fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1000",{cache:"no-store"}); if(!r.ok)throw Error(r.status); var a=await r.json(); overlay.candles=a.map(function(k){return{t:Number(k[0]),o:Number(k[1])};});drawOverlays();}catch(e){}
-}
 window.tvWidget.onChartReady(function(){
  restoreChartState();
- refreshOverlayData();
- setInterval(refreshOverlayData,10000);
- setInterval(drawOverlays,5000);
  setInterval(saveChartState,2000);
 });
 window.addEventListener("beforeunload",saveChartState);
