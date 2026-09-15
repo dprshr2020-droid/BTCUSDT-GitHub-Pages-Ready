@@ -31,32 +31,43 @@
   function addRay(timeMs, price, color) {
     if (price == null) return;
     try {
-      var id = chart.createShape(
-        { time: timeMs / 1000, price: price },
+      /* Use the documented multipoint `ray` drawing.  `horizontal_ray` is not
+         a supported CreateShapeOptions shape in this Charting Library build.
+         A two-point horizontal ray gives the exact required start point and
+         extends only to the right. */
+      var t0 = timeMs / 1000;
+      var t1 = (timeMs + ONE_MIN) / 1000;
+      var result = chart.createMultipointShape(
+        [
+          { time: t0, price: price },
+          { time: t1, price: price }
+        ],
         {
-          shape: "horizontal_ray",
+          shape: "ray",
           lock: true,
           disableSelection: true,
           disableSave: true,
           disableUndo: true,
-          zOrder: "top"
+          zOrder: "top",
+          overrides: {
+            "linetoolray.linecolor": color,
+            "linetoolray.linewidth": 1,
+            "linetoolray.linestyle": 2,
+            "linetoolray.extendLeft": false,
+            "linetoolray.extendRight": true,
+            "linetoolray.showPriceLabels": false,
+            "linetoolray.showPriceRange": false,
+            "linetoolray.showDistance": false,
+            "linetoolray.showDateTimeRange": false,
+            "linetoolray.showAngle": false
+          }
         }
       );
-      if (id) {
-        ids.push(id);
-        try {
-          var api = chart.getShapeById(id);
-          api.setProperties({
-            "linetoolhorzray.linecolor": color,
-            "linetoolhorzray.linewidth": 1,
-            "linetoolhorzray.linestyle": 2,
-            "linetoolhorzray.showPrice": false,
-            "linetoolhorzray.showLabel": false
-          });
-          api.setSelectionEnabled(false);
-          api.setSavingEnabled(false);
-        } catch (pe) { console.warn("[AutomaticDrawings] ray property error", pe); }
-      }
+      Promise.resolve(result).then(function(id) {
+        if (id) ids.push(id);
+      }).catch(function(e) {
+        console.warn("[AutomaticDrawings] ray create rejected", e);
+      });
     } catch (e) {
       console.warn("[AutomaticDrawings] ray error", e);
     }
@@ -69,7 +80,7 @@
     var bottom = Math.min(p15, pLast5);
 
     try {
-      var id = chart.createMultipointShape(
+      var result = chart.createMultipointShape(
         [
           { time: left, price: top },
           { time: right, price: bottom }
@@ -80,16 +91,12 @@
           disableSelection: true,
           disableSave: true,
           disableUndo: true,
-          zOrder: "top"
-        }
-      );
-      if (id) {
-        ids.push(id);
-        try {
-          var api = chart.getShapeById(id);
-          api.setProperties({
+          zOrder: "top",
+          overrides: {
             "linetoolrectangle.color": "rgba(255,255,255,0.5)",
             "linetoolrectangle.linewidth": 1,
+            "linetoolrectangle.lineStyle": 2,
+            "linetoolrectangle.backgroundColor": "rgba(255,255,255,0)",
             "linetoolrectangle.fillBackground": false,
             "linetoolrectangle.extendLeft": false,
             "linetoolrectangle.extendRight": false,
@@ -98,11 +105,14 @@
             "linetoolrectangle.middleLine.lineColor": "rgba(255,255,255,0.5)",
             "linetoolrectangle.middleLine.lineWidth": 1,
             "linetoolrectangle.middleLine.lineStyle": 2
-          });
-          api.setSelectionEnabled(false);
-          api.setSavingEnabled(false);
-        } catch (pe) { console.warn("[AutomaticDrawings] box property error", pe); }
-      }
+          }
+        }
+      );
+      Promise.resolve(result).then(function(id) {
+        if (id) ids.push(id);
+      }).catch(function(e) {
+        console.warn("[AutomaticDrawings] box create rejected", e);
+      });
     } catch (e) {
       console.warn("[AutomaticDrawings] box error", e);
     }
